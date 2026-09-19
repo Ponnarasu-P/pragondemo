@@ -11,6 +11,8 @@ RUN apt-get update && apt-get install -y \
     libxrandr2 \
     libxi6 \
     libasound2 \
+    libportaudio2 \
+    portaudio19-dev \
     python3-tk \
     tk-dev \
     libglib2.0-0 \

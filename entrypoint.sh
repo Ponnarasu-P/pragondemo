@@ -10,6 +10,9 @@ envsubst '${PORT}' < /app/nginx.conf > /etc/nginx/nginx.conf
 # Start Nginx in the background
 nginx
 
+# Clear any existing Xvfb lock files in case of container restart
+rm -f /tmp/.X99-lock
+
 # Start Xvfb in the background for dummy display
 Xvfb :99 -screen 0 1024x768x24 &
 export DISPLAY=:99
