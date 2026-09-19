@@ -7,9 +7,6 @@ export PORT=${PORT:-10000}
 # Substitute environment variables in nginx.conf
 envsubst '${PORT}' < /app/nginx.conf > /etc/nginx/nginx.conf
 
-# Start Nginx in the background
-nginx
-
 # Clear any existing Xvfb lock files in case of container restart
 rm -f /tmp/.X99-lock
 
@@ -17,9 +14,16 @@ rm -f /tmp/.X99-lock
 Xvfb :99 -screen 0 1024x768x24 &
 export DISPLAY=:99
 
-# Give Xvfb a moment to start
-sleep 2
+# Start P.R.A.G.O.N main application in the background
+echo "Starting P.R.A.G.O.N... (this may take a minute)"
+python run_pragon_moss.py &
 
-# Start P.R.A.G.O.N main application
-echo "Starting P.R.A.G.O.N..."
-exec python run_pragon_moss.py
+# Wait for Python to open port 8080 before starting Nginx
+echo "Waiting for backend to bind to port 8080..."
+while ! python -c "import socket; s = socket.socket(); s.settimeout(1); s.connect(('127.0.0.1', 8080)); s.close()" 2>/dev/null; do
+  sleep 2
+done
+
+echo "Backend is ready! Starting Nginx..."
+# Start Nginx in the foreground so the container stays alive
+exec nginx -g 'daemon off;'
