@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: pragon-service
+    env: docker
+    plan: starter
+    disk:
+      name: pragon-data
+      mountPath: /app/data
+      sizeGB: 1
+    envVars:
+      - key: PORT
+        value: 10000
+      # By default we tell pragon to use the mounted disk for the SQLite DB
+      - key: PRAGON_MOSS_DB
+        value: /app/data/pragon_moss.db
