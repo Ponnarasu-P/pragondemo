@@ -1,5 +1,7 @@
 FROM python:3.11-slim
 
+ENV PYTHONUNBUFFERED=1
+
 # Install system dependencies required for headless execution and reverse proxy
 RUN apt-get update && apt-get install -y \
     nginx \
@@ -26,6 +28,10 @@ COPY requirements.txt .
 
 # Install dependencies (Windows-specific ones will be ignored due to markers)
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Pre-download the sentence-transformers model into the Docker image cache
+# This prevents a 3-5 minute startup delay on Render's free tier that causes 502 timeouts.
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2', device='cpu')"
 
 # Create a volume directory for Render persistent disks
 RUN mkdir -p /app/data
