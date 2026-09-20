@@ -207,13 +207,16 @@ github_monitor = GitHubMonitor()
 n8n = N8NIntegration()
 crew = CrewOrchestrator()
 screen_vision_local = ScreenVision()
-sqlite_mem = SQLiteMemory(str(BASE_DIR / "pragon_brain" / "pragon_brain.db"))
-unified_mem = UnifiedMemory(str(BASE_DIR / "consciousness" / "unified"))
-
-
 def _get_api_key() -> str:
     with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
         return json.load(f)["gemini_api_key"]
+
+sqlite_mem = SQLiteMemory(str(BASE_DIR / "pragon_brain" / "pragon_brain.db"))
+unified_mem = UnifiedMemory(
+    str(BASE_DIR / "consciousness" / "unified"),
+    embedding_backend="gemini",
+    gemini_api_key_fn=_get_api_key
+)
 
 
 # -- Universal RAG System bridge (standalone FastAPI service, see ragsystem/) --

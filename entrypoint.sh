@@ -21,6 +21,9 @@ if [ -n "$GEMINI_API_KEY" ]; then
   echo "{\"gemini_api_key\": \"$GEMINI_API_KEY\"}" > api/api_keys.json
 fi
 
+# Force moss to use gemini embeddings so we don't OOM on the 512MB free tier
+export PRAGON_MOSS_EMBED=gemini
+
 # Start P.R.A.G.O.N main application in the background
 echo "Starting P.R.A.G.O.N... (this may take a minute)"
 python run_pragon_moss.py &
