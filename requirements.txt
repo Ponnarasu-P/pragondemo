@@ -36,7 +36,7 @@ tinytuya
 
 # Optional - agentic/utils integration (graceful fallback if missing)
 langdetect
-# sentence-transformers # Removed to prevent Out of Memory (OOM) on Render Free Tier. Uses Gemini fallback instead.
+sentence-transformers
 chromadb
 google-api-python-client
 google-auth-oauthlib

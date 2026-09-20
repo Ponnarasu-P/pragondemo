@@ -10,20 +10,16 @@ envsubst '${PORT}' < /app/nginx.conf > /etc/nginx/nginx.conf
 # Clear any existing Xvfb lock files in case of container restart
 rm -f /tmp/.X99-lock
 
-# Generate api/api_keys.json from environment variables to satisfy all file reads
-mkdir -p /app/api
-cat <<EOF > /app/api/api_keys.json
-{
-  "gemini_api_key": "${GEMINI_API_KEY:-}",
-  "livekit_url": "${LIVEKIT_URL:-}",
-  "livekit_api_key": "${LIVEKIT_API_KEY:-}",
-  "livekit_api_secret": "${LIVEKIT_API_SECRET:-}"
-}
-EOF
-
 # Start Xvfb in the background for dummy display
 Xvfb :99 -screen 0 1024x768x24 &
 export DISPLAY=:99
+
+# Inject GEMINI_API_KEY from environment into api_keys.json
+if [ -n "$GEMINI_API_KEY" ]; then
+  echo "Injecting GEMINI_API_KEY into api_keys.json..."
+  mkdir -p api
+  echo "{\"gemini_api_key\": \"$GEMINI_API_KEY\"}" > api/api_keys.json
+fi
 
 # Start P.R.A.G.O.N main application in the background
 echo "Starting P.R.A.G.O.N... (this may take a minute)"
