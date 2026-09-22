@@ -110,6 +110,9 @@ class EmbeddingActionDetector:
 
     def _try_load(self):
         try:
+            import os
+            if os.environ.get("PRAGON_MOSS_EMBED") == "gemini":
+                raise Exception("Disabled to save memory on Render instance")
             from sentence_transformers import SentenceTransformer
             import numpy as np
             self._np = np
