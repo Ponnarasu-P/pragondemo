@@ -769,6 +769,10 @@ body.p7-air-mouse-active *{cursor:none !important;}
     <input type="password" id="ui-api-key" placeholder="Enter API Key" style="flex:1; padding:4px; font-size:10px; background:#111; color:var(--text); border:1px solid var(--border); border-radius:3px; outline:none;" />
     <button onclick="saveApiKey()" style="padding:4px 8px; font-size:10px; background:#222; color:var(--text); border:1px solid var(--border); border-radius:3px; cursor:pointer;">Save</button>
   </div>
+  <div style="padding: 4px 10px 6px;">
+    <button id="test-key-btn" onclick="testApiKey()" style="width:100%; padding:5px 0; font-size:10px; letter-spacing:1px; background:rgba(0,245,255,.08); color:var(--accent); border:1px solid rgba(0,245,255,.3); border-radius:3px; cursor:pointer; transition:all .2s;">⚡ TEST CONNECT (JARVIS)</button>
+    <div id="test-key-status" style="margin-top:5px; font-size:9px; letter-spacing:1px; text-align:center; min-height:14px;"></div>
+  </div>
   </div>
   <div id="og" style="display:none">
     <div class="lph">Ollama</div>
@@ -1511,6 +1515,43 @@ function saveApiKey() {
     }
   }).catch(err => {
     toast('Error saving API key: ' + err);
+  });
+}
+
+function testApiKey() {
+  const key = $('ui-api-key').value.trim();
+  if (!key) { toast('Enter an API key first to test'); return; }
+  const btn = $('test-key-btn');
+  const status = $('test-key-status');
+  btn.disabled = true;
+  btn.textContent = '⏳ CONNECTING...';
+  btn.style.opacity = '0.6';
+  status.style.color = 'rgba(0,245,255,.6)';
+  status.textContent = 'Pinging J.A.R.V.I.S...';
+  fetch('/api/test_key', {
+    method: 'POST',
+    body: JSON.stringify({ gemini_api_key: key }),
+    headers: { 'Content-Type': 'application/json' }
+  }).then(res => res.json()).then(data => {
+    btn.disabled = false;
+    btn.textContent = '⚡ TEST CONNECT (JARVIS)';
+    btn.style.opacity = '1';
+    if (data.ok) {
+      status.style.color = '#00ff88';
+      status.textContent = '✓ CONNECTED · ' + (data.model || 'JARVIS') + ' ONLINE';
+      toast('✓ J.A.R.V.I.S connected successfully!');
+    } else {
+      status.style.color = '#ff4444';
+      status.textContent = '✗ ' + (data.error || 'Connection failed');
+      toast('✗ Connection failed: ' + (data.error || 'Invalid key'));
+    }
+  }).catch(err => {
+    btn.disabled = false;
+    btn.textContent = '⚡ TEST CONNECT (JARVIS)';
+    btn.style.opacity = '1';
+    status.style.color = '#ff4444';
+    status.textContent = '✗ Network error';
+    toast('Test failed: ' + err);
   });
 }
 
@@ -10690,6 +10731,14 @@ class PragonHTTPHandler(BaseHTTPRequestHandler):
             except Exception:
                 payload = {}
             self._handle_save_key(payload)
+        elif self.path.startswith('/api/test_key'):
+            length = int(self.headers.get('Content-Length', 0) or 0)
+            raw = self.rfile.read(length) if length else b'{}'
+            try:
+                payload = json.loads(raw.decode('utf-8') or '{}')
+            except Exception:
+                payload = {}
+            self._handle_test_key(payload)
         else:
             self.send_response(404)
             self.end_headers()
@@ -10927,6 +10976,58 @@ class PragonHTTPHandler(BaseHTTPRequestHandler):
             self.send_response(500)
             self.end_headers()
             self.wfile.write(str(e).encode('utf-8'))
+
+    def _handle_test_key(self, payload):
+        """Validate a Gemini API key by making a lightweight real API call.
+        Returns JSON {ok: true, model: '...'} on success or {ok: false, error: '...'}."""
+        from urllib.request import Request, urlopen
+        import json as _json
+        try:
+            key = (payload.get('gemini_api_key') or '').strip()
+            if not key:
+                self.send_response(400)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(_json.dumps({'ok': False, 'error': 'No API key provided'}).encode())
+                return
+
+            # Use gemini-2.0-flash-lite — the lightest/fastest model for a ping
+            model = 'gemini-2.0-flash-lite'
+            url = f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}'
+            body = _json.dumps({
+                'contents': [{'parts': [{'text': 'Hello'}]}],
+                'generationConfig': {'maxOutputTokens': 5}
+            }).encode('utf-8')
+            req = Request(url, data=body, headers={'Content-Type': 'application/json'}, method='POST')
+            with urlopen(req, timeout=15) as resp:
+                data = _json.loads(resp.read().decode('utf-8'))
+            # Validate response has actual content
+            candidates = data.get('candidates', [])
+            if candidates:
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(_json.dumps({'ok': True, 'model': model}).encode())
+            else:
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(_json.dumps({'ok': False, 'error': 'No response from Gemini'}).encode())
+        except Exception as e:
+            err_str = str(e)
+            # Surface friendly error messages for common HTTP errors
+            if '400' in err_str:
+                msg = 'Invalid API key (400)'
+            elif '403' in err_str:
+                msg = 'API key forbidden (403)'
+            elif '429' in err_str:
+                msg = 'Rate limit exceeded (429)'
+            else:
+                msg = err_str[:120]
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(_json.dumps({'ok': False, 'error': msg}).encode())
 
     def _handle_generate_image(self, post_payload=None):
         """Proxy image generation (server-side, bypasses browser CORS/referrer blocks).
