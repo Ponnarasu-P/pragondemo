@@ -10978,7 +10978,7 @@ class PragonHTTPHandler(BaseHTTPRequestHandler):
             self.wfile.write(str(e).encode('utf-8'))
 
     def _handle_test_key(self, payload):
-        """Validate a Gemini API key by making a lightweight real API call.
+        """Validate a Gemini API key by listing available models.
         Returns JSON {ok: true, model: '...'} on success or {ok: false, error: '...'}."""
         from urllib.request import Request, urlopen
         import json as _json
@@ -10991,62 +10991,44 @@ class PragonHTTPHandler(BaseHTTPRequestHandler):
                 self.wfile.write(_json.dumps({'ok': False, 'error': 'No API key provided'}).encode())
                 return
 
-            # Try models in order of preference — use smallest/cheapest for a ping
-            models_to_try = ['gemini-1.5-flash-latest', 'gemini-1.5-flash', 'gemini-pro']
-            last_error = None
-            for model in models_to_try:
-                try:
-                    url = f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}'
-                    body = _json.dumps({
-                        'contents': [{'parts': [{'text': 'Hi'}]}],
-                        'generationConfig': {'maxOutputTokens': 5}
-                    }).encode('utf-8')
-                    req = Request(url, data=body, headers={'Content-Type': 'application/json'}, method='POST')
-                    with urlopen(req, timeout=15) as resp:
-                        data = _json.loads(resp.read().decode('utf-8'))
-                    candidates = data.get('candidates', [])
-                    if candidates:
-                        self.send_response(200)
-                        self.send_header('Content-Type', 'application/json')
-                        self.end_headers()
-                        self.wfile.write(_json.dumps({'ok': True, 'model': model}).encode())
-                        return
-                    else:
-                        last_error = 'No candidates in response'
-                except Exception as model_err:
-                    err_str = str(model_err)
-                    # If it's auth error (400/403), no point trying other models
-                    if '400' in err_str or '403' in err_str:
-                        last_error = err_str
-                        break
-                    # 404 means model not found — try next
-                    if '404' in err_str:
-                        last_error = err_str
-                        continue
-                    last_error = err_str
-                    break
-
-            # All models failed
-            err_str = last_error or 'Unknown error'
+            # Use models.list endpoint — validates the key without needing a specific model name
+            url = f'https://generativelanguage.googleapis.com/v1beta/models?key={key}&pageSize=5'
+            req = Request(url, headers={'Content-Type': 'application/json'}, method='GET')
+            with urlopen(req, timeout=15) as resp:
+                data = _json.loads(resp.read().decode('utf-8'))
+            models = data.get('models', [])
+            if models:
+                # Pick the first model name to show in the status
+                first_model = models[0].get('name', '').replace('models/', '')
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(_json.dumps({
+                    'ok': True,
+                    'model': first_model,
+                    'count': len(models)
+                }).encode())
+            else:
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(_json.dumps({'ok': False, 'error': 'Key valid but no models accessible'}).encode())
+        except Exception as e:
+            err_str = str(e)
             if '400' in err_str:
                 msg = 'Invalid API key'
             elif '403' in err_str:
-                msg = 'API key forbidden / no access'
+                msg = 'API key forbidden / disabled'
+            elif '401' in err_str:
+                msg = 'Unauthorized — invalid API key'
             elif '429' in err_str:
-                msg = 'Rate limit exceeded'
-            elif '404' in err_str:
-                msg = 'No model available for this key'
+                msg = 'Rate limit exceeded — try again later'
             else:
-                msg = err_str[:120]
+                msg = err_str[:150]
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self.end_headers()
             self.wfile.write(_json.dumps({'ok': False, 'error': msg}).encode())
-        except Exception as e:
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            self.wfile.write(_json.dumps({'ok': False, 'error': str(e)[:120]}).encode())
 
     def _handle_generate_image(self, post_payload=None):
         """Proxy image generation (server-side, bypasses browser CORS/referrer blocks).
