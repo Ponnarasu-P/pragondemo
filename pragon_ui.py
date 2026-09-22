@@ -10991,43 +10991,62 @@ class PragonHTTPHandler(BaseHTTPRequestHandler):
                 self.wfile.write(_json.dumps({'ok': False, 'error': 'No API key provided'}).encode())
                 return
 
-            # Use gemini-2.0-flash-lite — the lightest/fastest model for a ping
-            model = 'gemini-2.0-flash-lite'
-            url = f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}'
-            body = _json.dumps({
-                'contents': [{'parts': [{'text': 'Hello'}]}],
-                'generationConfig': {'maxOutputTokens': 5}
-            }).encode('utf-8')
-            req = Request(url, data=body, headers={'Content-Type': 'application/json'}, method='POST')
-            with urlopen(req, timeout=15) as resp:
-                data = _json.loads(resp.read().decode('utf-8'))
-            # Validate response has actual content
-            candidates = data.get('candidates', [])
-            if candidates:
-                self.send_response(200)
-                self.send_header('Content-Type', 'application/json')
-                self.end_headers()
-                self.wfile.write(_json.dumps({'ok': True, 'model': model}).encode())
-            else:
-                self.send_response(200)
-                self.send_header('Content-Type', 'application/json')
-                self.end_headers()
-                self.wfile.write(_json.dumps({'ok': False, 'error': 'No response from Gemini'}).encode())
-        except Exception as e:
-            err_str = str(e)
-            # Surface friendly error messages for common HTTP errors
+            # Try models in order of preference — use smallest/cheapest for a ping
+            models_to_try = ['gemini-1.5-flash-latest', 'gemini-1.5-flash', 'gemini-pro']
+            last_error = None
+            for model in models_to_try:
+                try:
+                    url = f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}'
+                    body = _json.dumps({
+                        'contents': [{'parts': [{'text': 'Hi'}]}],
+                        'generationConfig': {'maxOutputTokens': 5}
+                    }).encode('utf-8')
+                    req = Request(url, data=body, headers={'Content-Type': 'application/json'}, method='POST')
+                    with urlopen(req, timeout=15) as resp:
+                        data = _json.loads(resp.read().decode('utf-8'))
+                    candidates = data.get('candidates', [])
+                    if candidates:
+                        self.send_response(200)
+                        self.send_header('Content-Type', 'application/json')
+                        self.end_headers()
+                        self.wfile.write(_json.dumps({'ok': True, 'model': model}).encode())
+                        return
+                    else:
+                        last_error = 'No candidates in response'
+                except Exception as model_err:
+                    err_str = str(model_err)
+                    # If it's auth error (400/403), no point trying other models
+                    if '400' in err_str or '403' in err_str:
+                        last_error = err_str
+                        break
+                    # 404 means model not found — try next
+                    if '404' in err_str:
+                        last_error = err_str
+                        continue
+                    last_error = err_str
+                    break
+
+            # All models failed
+            err_str = last_error or 'Unknown error'
             if '400' in err_str:
-                msg = 'Invalid API key (400)'
+                msg = 'Invalid API key'
             elif '403' in err_str:
-                msg = 'API key forbidden (403)'
+                msg = 'API key forbidden / no access'
             elif '429' in err_str:
-                msg = 'Rate limit exceeded (429)'
+                msg = 'Rate limit exceeded'
+            elif '404' in err_str:
+                msg = 'No model available for this key'
             else:
                 msg = err_str[:120]
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self.end_headers()
             self.wfile.write(_json.dumps({'ok': False, 'error': msg}).encode())
+        except Exception as e:
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(_json.dumps({'ok': False, 'error': str(e)[:120]}).encode())
 
     def _handle_generate_image(self, post_payload=None):
         """Proxy image generation (server-side, bypasses browser CORS/referrer blocks).
