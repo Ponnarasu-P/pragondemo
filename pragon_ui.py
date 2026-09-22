@@ -764,7 +764,11 @@ body.p7-air-mouse-active *{cursor:none !important;}
   <div class="cstat" id="friday-stat" style="margin-top:4px">STANDBY</div>
   <div class="cstat" id="ghost-stat" style="margin-top:4px">STANDBY</div>
 
-   
+  <div class="lph" style="margin-top:10px">Gemini API Key</div>
+  <div class="lf" style="display:flex; gap:5px; margin-top:5px; padding: 0 10px;">
+    <input type="password" id="ui-api-key" placeholder="Enter API Key" style="flex:1; padding:4px; font-size:10px; background:#111; color:var(--text); border:1px solid var(--border); border-radius:3px; outline:none;" />
+    <button onclick="saveApiKey()" style="padding:4px 8px; font-size:10px; background:#222; color:var(--text); border:1px solid var(--border); border-radius:3px; cursor:pointer;">Save</button>
+  </div>
   </div>
   <div id="og" style="display:none">
     <div class="lph">Ollama</div>
@@ -1490,6 +1494,25 @@ function addMsg(role,txt){
 
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function escH(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+function saveApiKey() {
+  const key = $('ui-api-key').value.trim();
+  if (!key) { toast('Please enter a valid API key'); return; }
+  fetch('/api/save_key', {
+    method: 'POST',
+    body: JSON.stringify({ gemini_api_key: key }),
+    headers: { 'Content-Type': 'application/json' }
+  }).then(res => res.text()).then(txt => {
+    if (txt === 'OK') {
+      toast('API Key saved successfully! Restart may be needed.');
+      $('ui-api-key').value = '';
+    } else {
+      toast('Error saving API key');
+    }
+  }).catch(err => {
+    toast('Error saving API key: ' + err);
+  });
+}
 
 function toggleLog(){logOpen=!logOpen;$('tp').classList.toggle('open');$('ltog').classList.toggle('po');}
 function toggleSide(){if(zenMode){toast('Locked in Zen Mode');return;}sideOpen=!sideOpen;$('lp').classList.toggle('open');$('stog').classList.toggle('po');}
@@ -10659,6 +10682,14 @@ class PragonHTTPHandler(BaseHTTPRequestHandler):
             except Exception:
                 payload = {}
             self._handle_gallery_delete(payload)
+        elif self.path.startswith('/api/save_key'):
+            length = int(self.headers.get('Content-Length', 0) or 0)
+            raw = self.rfile.read(length) if length else b'{}'
+            try:
+                payload = json.loads(raw.decode('utf-8') or '{}')
+            except Exception:
+                payload = {}
+            self._handle_save_key(payload)
         else:
             self.send_response(404)
             self.end_headers()
@@ -10866,6 +10897,36 @@ class PragonHTTPHandler(BaseHTTPRequestHandler):
             self.send_header('Cache-Control', 'no-cache')
             self.end_headers()
             self.wfile.write(body.encode('utf-8'))
+
+    def _handle_save_key(self, payload):
+        try:
+            key = payload.get('gemini_api_key')
+            if not key:
+                self.send_response(400)
+                self.end_headers()
+                self.wfile.write(b'Missing API key')
+                return
+            config_path = FORGE_CONFIG_PATH
+            import json
+            cfg = {}
+            if config_path.is_file():
+                try:
+                    with open(config_path, "r", encoding="utf-8") as f:
+                        cfg = json.load(f)
+                except Exception:
+                    pass
+            cfg['gemini_api_key'] = key
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(config_path, "w", encoding="utf-8") as f:
+                json.dump(cfg, f, indent=4)
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/plain; charset=utf-8')
+            self.end_headers()
+            self.wfile.write(b'OK')
+        except Exception as e:
+            self.send_response(500)
+            self.end_headers()
+            self.wfile.write(str(e).encode('utf-8'))
 
     def _handle_generate_image(self, post_payload=None):
         """Proxy image generation (server-side, bypasses browser CORS/referrer blocks).
